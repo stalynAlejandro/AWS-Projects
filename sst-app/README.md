@@ -205,3 +205,192 @@ Our starter also comes with a few helpful scripts.
 > `gen`: Uses **Hygen** to run built-in code gen tasks. Currently only supports `npm run gen migration new`. This will help you code gen a new migration.
 
 - Note: The _default_ stage that we are referring to above; is the one that you selected while first creating the app.
+
+## sst.config.ts
+
+Finally, the `sst.config.ts` defines the project config and the stacks in the app.
+
+```ts
+//  sst.config.ts
+
+export default {
+  config(_input){
+    return{
+      name:"my-sst-app",
+      region:"us-east-1",
+    };
+  },
+  stacks(app){
+    app.stack(Database).stack(Api).stack(web)
+  }
+} satisfies SSTConfig;
+
+```
+
+By now your `sst dev` process should be complete. So let'srun our first migration and initialize our database.
+
+# Initialize the Database
+
+After the `sst dev` command.
+
+Once your local development is up and running, you should see the following printed out in the terminal.
+
+```
+
+SST v2.5.5 ready!
+
+=> App:     my-sst-app
+   Stage:   sa
+   Console: https://console.sst.dev/my-sst-app/sa
+```
+
+We are now ready to initialize our database. We are using RDS with PostgreSQL in this setup.
+
+## RDS
+
+RDS is a fully-managed database offering from AWS. It supports PostgreSQL and MySQL engines.
+
+SST provisions a serverless flavour of it with the `RDS` construct. RDS will automatically scale up and down based on the load it's experiencing.
+
+- Note. Serverless RDS can take a few minutes to autoscale up and down.
+
+We'll use RDS with PostgreSQL in this tutorial because it is the most familiar option. We'll do a deep dive into a true serverless database like `DynamoDB` at a later date.
+
+## Open the Console
+
+Head over to the _Console_ link in your browser - `https://console.sst.dev/ss-app/sa/local`
+
+- The SST Console is a web based dashboard to manage your SST apps.
+
+Then navigate to the RDS tab.
+
+To add tables in our database we are going to run a **migration**.
+
+### What is a migration
+
+Migrations are a set of files that contain the queries necessary to make updates to our database schema. They have an `up` function, that's run while applying the migration. And a `now` function, that's run while rolling back the migration.
+
+Recall from the _Project Structure_ chapter that the migration files are placed in `packages/core/migrations`.
+
+The starter creates the first migration for you. It's called `article` and you'll find it in `package/core/migrations/165000012557_article.mjs`
+
+We use **Kysely** to build our SQL queries in a typesafe way. We use that for our migrations as well.
+
+```js
+//  packages/core/migrations/16500000012557_article.mjs
+
+import { Kysely } from "kysely";
+
+export async function up(db) {
+  await db.schema
+    .createTable("article")
+    .addColumn("articleID", "text", (col) => col.primaryKey())
+    .addColumn("title", "text", (col) => col.notNull())
+    .addColumn("url", "text", (col) => col.notNull())
+    .addColumn("created", "timestamp", (col) => col.defaultTo("now()"))
+    .execute();
+
+  await db.schema
+    .createIndex("idx_article_created")
+    .on("article")
+    .column("created")
+    .execute();
+}
+
+export async function down(db) {
+  await db.schema.dropIndex("idx_article_created").execute();
+  await db.schema.dropIndex("idx_article_created").execute();
+}
+```
+
+In this case, our migration is creating a table, called `article`, to store the links that are submitted. We are also adding an index to fetch them. The `down` function just removes the table and the index.
+
+- Migration files are named with a timestamp to prevent naming conflicts when you are working with your team.
+
+You can create a new migration by running `npm run gen migration new`. This command will ask for the name of a migration and it'll generate a new file with the current timestamp.
+
+> Click on the **Migrations** button on the top right. And click the **Apply** button on the **article** migration.
+
+This will create a table named `article`.
+
+In the **Migrations** tab you'll see all the migrations in our app, and their status.
+
+## Run a query
+
+> To verify that the table has been created successfully; enter the following query into the query editor, and hit **Execute**.
+
+```sql
+
+SELECT * FROM article
+
+```
+
+You should see the query returns 0 rows.
+
+### Behind The Scenes
+
+1. We ran `sst dev` to start **Live Lambda Dev** environment and the **SST Console**.
+
+2. Deployed the infraestructure for our app to AWS. Including a **RDS PostgreSQL** database based on `stacks/Database.ts`.
+
+3. We then opened up the Console and ran a migration in `packages/core/migrations`.
+
+4. It created an `article` table that we'll use to store the links our users will submit.
+
+## Start The Frontend
+
+You can start your frontend app locally, like you normally would. And it can connect to the API that's running using **SST's Live Lambda Dev**. That wey you can make changes live in your API and it'll reflect right away in the frontend.
+
+> cd packages/web
+
+> npm run dev
+
+You should see the following in your terminal.
+
+```
+vite ... dev server running at:
+
+> Local: http://localhost:3000/
+> Network: use `--host` to expose
+
+ready in ms
+
+```
+
+You should see the homepage of our app.
+
+Over on the **Console**; you'll find the **Live Lambda** logs in the **Local** tab.
+
+There, should see a `POST /graphql` request that was made. And the response body should say `"articles":[]`.
+
+### Behind The Scenes
+
+This seemingly simple workflow:
+
+1. Your frontend is running locally.
+
+2. It makes a request to a GraphQL endpoint that's running in AWS.
+
+3. That invokes a Lambda function in AWS.
+
+4. The Lambda function request is then proxied to your local machine.
+
+5. The local version of that function is run.
+
+6. It makes a query to an RDS Postgres database that's in AWS.
+
+7. The logs for the function execution are displayed in the Console.
+
+8. The results of that execution are sent back to AWS.
+
+9. Your frontend then renders those results.
+
+Note that everything here happens in real-time. There's no polling or syncing!
+
+### Post an article
+
+Type in `Learning sst` as the title and `https://sst.dev` for the URL. Click **Submit**.
+
+You should see a page with the new article.
+
+Again if we head back to the Console, you should se a new `POST /graphql` request. This time, creating the new article.

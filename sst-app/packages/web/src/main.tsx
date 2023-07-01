@@ -5,6 +5,7 @@ import {
   cacheExchange,
   fetchExchange,
   Provider as UrqlProvider,
+  createClient,
 } from "urql";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Home from "./pages/Home";
