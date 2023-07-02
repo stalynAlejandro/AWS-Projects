@@ -593,3 +593,255 @@ const rds = new RDS(stack, "rds", {
 Event though this file is auto-generated, you should check it into Git.
 
 Now with our business logic and database queries implemented, we are ready to hook up our API.
+
+# GraphQL API
+
+We are now ready to expose the new comments functionality in our core package through an API. You'll recall that we use **GraphQL** for our API in our starter.
+
+**GraphQL** is a query language for your API that provides more structure than open ended REST APIs.
+
+### Why GraphQL
+
+It can effectively separate your frontend and backend. In the REST API world, if you needed to make a change to the frontend and display some data differently. Or display different data, you need to think about making a change to the API as well.
+
+In the case of GraphQL, you describe all your data, the relationships, and the actions you can carry out on that data once. The frontend can request whatever it needs in a way that makes sense for it.
+
+These benefits become all the more valuable when you have multiple clients. For example, imagine your desktop site shows all the articles along with their comments, while the mobile site only shows the articles. This is easy to do with GraphQL. Each client just specifies what it needs.
+
+GraphQL also has a huge community that has built really great tooling around it for things like code-generation, authorization, loggin...
+
+# Code - First GraphQL
+
+In the `create sst` setup we do what's called _Code-First GraphQL_. This means that you write all of your GraphQL API definitions in TypeScript, instead of splitting them across GraphQL files and TS Files.
+
+> The `create sst` setup uses an aproach called _Code-first GraphQL_
+
+We use a library called _Photos_ to do this. And while it's not the default way to do GraphQL, it's a fantastically productive pattern and we recommend it for everyone.
+
+### Lambda optimized GraphQL
+
+1. First, our GraphQL API is defined in `stack/Api.ts`.
+
+Our API has a single route at `graphql`. It's an `ApiPothosRouteProps`.
+
+Configuration:
+
+- The `handler` points to where the Lambda function is.
+
+- The `schema` is the reference to a GraphQL schema.
+
+- The `output` is where Pothos outputs the GraphQL schema to a file. By writing to a file, we are able to use other tools in the GraphQL ecosystem.
+
+- Finally, the `commands` let you specify any scripts you want to run after the schema has been generated. We'll look at what we are running below.
+
+2. The GraphQL schema is specified in `packages/functions/src/graphql/schema.ts`
+
+```ts
+import { build } from "./builder";
+import "./types/article";
+export const schema = builder.toSchema({});
+```
+
+It's doing two things:
+
+- Get the Pothos `SchemaBuilder` that we define in `packages/functions/src/graphql/builder.ts`
+
+```ts
+import SchemaBuilder from "@pothos/core";
+
+export const builder = new SchemaBuilder({});
+
+builder.queryType({});
+builder.mutationType({});
+```
+
+This creates a new instance that we'll use to build out our GraphQL schema.
+
+- Import all our GraphQL schema types. Right now we only have one for our article, `./types/article`. These use the `builder` from above to build out our schema.
+
+- Finally, get the GraphQL schema from Pothos by running `builder.toSchema()`
+
+3. We then pass the Graphql schema into the Lambda optimized GraphQL handler, `GraphQLHandler`.
+
+It's defined in `packages/functions/src/graphql/graphql.ts`
+
+4. Finally, we are running a script after our schema has been generated.
+
+```
+npx genql --output ./graphql/genql --schema ./graphql/schema.graphql --esm
+```
+
+We are using _Genql_, to generated a typed GraphQL client to the --output directory. It uses the GraphQL schema that Pothos generates in the `--schema` directory. We
+
+We internally have a watcher that generated the typed frontend client when we make changes to our Pothos schema.
+
+1. Detect changes in the Pothos schema.
+2. Generate a standard GraphQL schema.
+3. Generate our typed fronend GraphQL client from the schema.
+
+Let's expose the comments feature with our GraphQL API.
+
+# Add API Types
+
+Currently we define the GraphQL schema for our article in `packages/functions/src/graphql/types/article.ts`. We do three things there - define a type, add a query, and define a mutation.
+
+### Defining types and Create a comment type
+
+In `packages/functions/src/graphql/types/article.ts` add the following above the `ArticleType`.
+
+```ts
+//  packages/functions/src/graphql/types/article.ts
+
+const CommentType = builder.objectRef<SQL.Row["comment"]>("Comment").implement({
+  fields:(t)=>{
+    id: t.exposeID("commentID"),
+    text:t.exposeString("text")
+  }
+})
+
+```
+
+This should be pretty straightforward. We are taking the `comment` type from our SQL query and exposing the `commentID` as type `ID` and the comment `text` as `String`.
+
+```ts
+const ArticleType = builder.objectRef<SQL.Row["article"]>("Article").implement({
+  fields: (t) => ({
+    id: t.exposeID("articleID"),
+    url: t.exposeString("url"),
+    title: t.exposeString("title"),
+    comments: t.field({
+      type: [CommentType],
+      resolve: (article) => Article.comments(article.articleID),
+    }),
+  }),
+});
+```
+
+The resolver function takes an `article` object.
+
+It grabs the `articleID` from it and calls the `Article.comments()` domain function in `packages/core/src/article.ts`.
+
+# Queries and Mutations
+
+In GraphQL APIs, the actions you can take are broken down into _Queries and Mutations_.
+
+**Queries** are used for reading data.
+
+**Mutations** are for writing data or triggering actions.
+
+### Define queries
+
+We have to queries.
+
+1. Fetch a single article. `article`.
+2. Fetch all the articles. `articles`.
+
+```ts
+//  packages/functions/src/graphql/types/artile.ts
+
+builder.queryFields((t) => ({
+  article: t.field({
+    type: ArticleType,
+    args: {
+      articleID: t.arg.string({ required: true }),
+    },
+    resolve: async (_, args) => {
+      // ...
+    },
+  }),
+  articles: t.field({
+    type: [ArticleType],
+    resolve: () => Article.list(),
+  }),
+}));
+```
+
+A query needs to define:
+
+1. The return `type`.
+
+2. A function on how to `resolve` the query.
+
+3. And optionally take any `args` needed to resolve the query.
+
+The `article` query above returns a sigle article given an article id.
+
+### Define mutations
+
+**Mutations** are similar to queries but are meant for writing data or for triggering actions. For our app, we need a mutation that can create an article.
+
+```ts
+// packages/functions/src/graphql/types/article.ts
+
+builder.mutationFields((t) => ({
+  createArticle: t.field({
+    type: ArticleType,
+    args: {
+      title: t.arg.string({ required: true }),
+      url: t.arg.string({ required: true }),
+    },
+    resolve: (_, args) => Article.create(args.title, args.url),
+  }),
+}));
+```
+
+Just like queries; mutations have a `resolve` function that takes `args` and has a return type.
+
+> You define the type for an object, add a query for how to fetch it, and a mutation for how to create or update it.
+
+### Create a new mutation
+
+Add a mutation to crate a comment.
+
+In `packages/functions/src/graphql/types/articles.ts`, add this above the `createArticle` mutation:
+
+```ts
+// packages/functions/src/graphql/types/article.ts
+
+addComment: t.field({
+  type: CommentType,
+  args: {
+    articleID: t.arg.string({ required: true }),
+    text: t.arg.string({ required: true }),
+  },
+  resolve: (_, args) => Article.addComment(args.articleID, args.text),
+}),
+```
+
+Let's connect these to our fronend React app.
+
+# Render Queries
+
+Let's now add the comments feature to our frontend.
+
+### Update GraphQL query
+
+We'll start by updating our homepage to show the number of comments in each article.
+
+In `packages/web/src/pages/Home.tsx` replace `useTypedQuery` with:
+
+```ts
+// Handle empty document cache
+// https://formidable.com/open-source/urql/docs/basics/document-caching/#adding-typenames
+const context = useMemo(
+  () => ({ additionalTypenames: ["Article", "Comments"] }),
+  []
+);
+const [articles] = useTypedQuery({
+  query: {
+    articles: {
+      id: true,
+      url: true,
+      title: true,
+      comments: {
+        id: true,
+      },
+    },
+  },
+  context,
+});
+```
+
+We are adding `comments` to our query. You'll notice we aren't writing a typical GraphQL query. We are writting the query as an object. It's using a typesafe GraphQL client.
+
+We are also making a change to `additionalTypenames`. This is to fix a quirk of Urlq's _Document Cache_, we'll look at this in the next chapter.

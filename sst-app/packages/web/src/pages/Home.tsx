@@ -9,13 +9,19 @@ import styles from "./Home.module.css";
 export default function Home() {
   // Handle empty document cache
   // https://formidable.com/open-source/urql/docs/basics/document-caching/#adding-typenames
-  const context = useMemo(() => ({ additionalTypenames: ["Article"] }), []);
+  const context = useMemo(
+    () => ({ additionalTypenames: ["Article", "Comments"] }),
+    []
+  );
   const [articles] = useTypedQuery({
     query: {
       articles: {
         id: true,
         url: true,
         title: true,
+        comments: {
+          id: true,
+        },
       },
     },
     context,
