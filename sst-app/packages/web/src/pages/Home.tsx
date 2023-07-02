@@ -45,6 +45,11 @@ export default function Home() {
                   ({article.url.replace(/(^\w+:|^)\/\//, "")})
                 </a>
               </div>
+              <div className={styles.footer}>
+                <strong>{article.comments.length}</strong>
+                <span className={styles.footerSeparator}>&bull;</span>
+                <Link to={`/article/${article.id}`}>View Comments</Link>
+              </div>
             </li>
           ))}
         </ol>

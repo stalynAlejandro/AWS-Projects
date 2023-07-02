@@ -845,3 +845,114 @@ const [articles] = useTypedQuery({
 We are adding `comments` to our query. You'll notice we aren't writing a typical GraphQL query. We are writting the query as an object. It's using a typesafe GraphQL client.
 
 We are also making a change to `additionalTypenames`. This is to fix a quirk of Urlq's _Document Cache_, we'll look at this in the next chapter.
+
+# Render Queries
+
+### Typesafe GraphQL Client
+
+We are using a _React Hook_ called `useTypedQuery`.
+
+Let's look at how our typesafe frontend GraphQL client works behind the scenes.
+
+SST uses Urql, GraphQL clients. The `useTypedQuery` hook wraps around `useQuery` hook while using the types that Genql generates based on our GraphQL schema.
+
+The types are code-generated automatically. We looked at this process back in the GraphQLAPI chapter.
+
+The `useTypedQuery` hook is imported from the `graphql/` directory in our app. This directory is mostly code-genned but is meant to be commited to Git.
+
+```ts
+import {useTypedQuery} from '@my-sst-app/graphql/urql";
+```
+
+The `useTypedQuery` hook needs an instance of our GraphQL client to make the queries. We define this in `packages/web/src/main.tsx`.
+
+```ts
+const urql = new Client({
+  url: import.meta.env.VITE_GRAPHQL_URL,
+  exchanges: [cacheExchange, fetchExchange],
+});
+```
+
+Where `VITE_GRAPHQL_URL` is an environment variable that's passed in through our stacks.
+
+To ensure that the `useTypedQuery` hook is able to access our Urql client across our app, we wrap it around our app using **react context**.
+
+```tsx
+// packages/web/src/main.tsx
+
+<React.StrictMode>
+  <UrqlProvider value={urql}>
+    <App />
+  </UrqlProvider>
+</React.StrictMode>
+```
+
+### Render comment count
+
+Now we need to render the result. The `Home` component renders each article on the homepage as a `<li>`
+
+```tsx
+//  packages/web/src/pages/Home.tsx
+
+<div className={styles.footer}>
+  <strong>{article.comments.length}</strong>
+  <span className={styles.footerSeparator}>&bull;</span>
+  <Link to={`/article/${article.id}`}>View Comments</Link>
+</div>
+```
+
+### Client-side routing
+
+The article page is available at `/article/:id`.
+
+Since our app is a frontend _SPA_ (single-page-application) we use a client-side router, called **React Router** to handle these routes.
+
+We have two pages in our app:
+
+1. Homepage - `/`
+
+2. Articles page - `/articles/:id`
+
+# Auto refetching queries
+
+If you've been following along closely, you might've noticed something interesting. We aren't doing anything special to render the newly added comment.
+
+The `addComent` mutation returns the type `Comment` type has been cached as a part of the `article` query.
+
+# Deploy with the CLI
+
+Stop the `npx sst dev` process in the CLI.
+
+And run
+
+```sh
+npx sst deploy --stage prod
+```
+
+The key difference here is that we are passing in a `stage` for the command. You might recall from the **Create a New Project** chapter that SST uses the stage to namespace the resources it creates.
+
+Running `sst deploy` with `--stage prod` is creating a new instance of your application. This separates it from the one you are using for development.
+
+So when you make changes locally, your users are not affected by it.
+
+## Manage in prod
+
+After your app is deployed to prod, you can use the SST console to manage it as well.
+
+Run on root of the project.
+
+```sh
+npx sst console --stage prod
+```
+
+This will start up the SST Console and connect it to the given `stage`.
+
+The console won't have the _local_ tab as the functions are not running locally anymore. Instead you can view the CloudWatch logs for your functions.
+
+# Git push to deploy
+
+You can also set it up so that your app deploys to production when you git push.
+
+To do this, you'll first want to push your code to a Git provider. You can use something like GitHub for this. Then connect it to a CI/CD service to deploy your app.
+
+There are a bunch of general purpose CI/CD services out there. These are designed to work with different kinds of applications and workflows. But they need to be configured so that they work with SST.
