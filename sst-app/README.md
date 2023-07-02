@@ -394,3 +394,202 @@ Type in `Learning sst` as the title and `https://sst.dev` for the URL. Click **S
 You should see a page with the new article.
 
 Again if we head back to the Console, you should se a new `POST /graphql` request. This time, creating the new article.
+
+## Set a breakpoint
+
+Open `packages/core/src/article.ts` and set a breakpoint in the `list` function.
+
+The `list` domain function is called by our GraphQL API to get the list of all the articles that have been submitted. So it'll get run when we load our app homepage.
+
+We currently have `sst dev` running in our terminal. Let's switch over to debugging through VS Code.
+
+First stop the `sst dev` CLI.
+
+Then select the **Run and Debug** tab in the top left menu in VSCode, and click **Start Debugging** at the top.
+
+Go back to our frontend and refresh the homepage. You should see it hit our breakpoint.
+
+Now you can browse the values of the variables in our code. You can also inspect the call stack leading up to the function call.
+
+Once you are done debugging, hit **Continue** to resume the execution.
+
+Now you have a good feel for SST's local development environment. Let's start working on our app.
+
+# Domain Driven Desing
+
+So we are ready to start working on our app. We'll be adding a simple comments feature.
+
+And the setup that `create sst` generates reflects **Domain Driven Design(DDD)** pattern.
+
+### What is DDD
+
+In practice, this looks like creating a collection of modules and functions in the `packages/core` directory that implements the capabilities of your system.
+
+> The idea of DDD is to have a separate layer that holds your business logic.
+
+In the starter we provide a `core/src/article.ts` module which contains actions you can take that are related to the business concept of _Articles_. It exposes hihg level functions that handle the work of talking to the database, storing and retrieving them, and allows for more complex functionality in the future - like publishing notifications to an event bus.
+
+The API and Lambda function code are unaware of these details and simply call into these modules to compose the logic together.
+
+# Write to the Database
+
+### Scaffod business logic
+
+We'll start by scaffolding the domain code first. We'll add this to our `core` package.
+
+Open up `packages/core/src/article.ts` and add the following two functions to the bottom of the file.
+
+```ts
+export function addComment(articleID: string, text: string) {
+  // code for adding a comment to an article
+}
+
+export function comments(articleID: string) {
+  // code for getting a list of comments of an article
+}
+```
+
+Before we can implement them, we'll need to create a new table to store the comments.
+
+### Create a migration
+
+Run this in the **root** of the project to create a new migration.
+
+```sh
+npm run gen migration new
+
+```
+
+It'll aks you to name your migration.
+
+```sh
+? Migration name > comment
+```
+
+Once the migration is created, you should see the following in your terminal.
+
+```sh
+  Migration name - comment
+
+  Loaded templates: _templates
+    added: packages/core/migrations/99974749...mjs
+```
+
+Open up the new migration script and replace its content with:
+
+```ts
+// packages/core/migration/9091_comment.mjs
+
+import { Kysely } from "kysely";
+
+export async function up(db) {
+  await db.schema
+    .createTable("comment")
+    .addColumn("commentID", "text", (col) => col.primaryKey())
+    .addColumn("articleID", "text", (col) => col.notNull())
+    .addColumn("text", "text", (col) => col.notNull());
+    .execute()
+}
+
+export async function down(db){
+  await db.schema.dropTable("comment").execute()
+}
+```
+
+This migration will create a new table called `comment`. While undoing the migration will drop the table.
+
+### Run a migration
+
+Go to the RDS tab in SST Console and Click **Apply** on our `comment` migration.
+
+To verify: `SELECT * FROM comment`
+
+You should see 0 row being returned.
+
+### Query the table
+
+Ready to implement the `addComment` and `comments` functions.
+
+```ts
+//  packages/core/src/article.ts
+
+export function addComment(articleID: string, text: string) {
+  return SQL.DB.insertInto("comment")
+    .values({
+      commentID: ulid(),
+      articleID,
+      text,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+}
+
+export function comments(articleID: string) {
+  return SQL.DB.selectFrom("comment")
+    .selectAll()
+    .where("articleID", "=", articleID)
+    .execute();
+}
+```
+
+We are using _Kysely_ to run typesafe queries against our database.
+
+1. `SQL.DB` is the kysely instance imported from `packages/core/src/sql.ts`
+
+2. `RDS` is comming from the SST Node client package.
+
+```ts
+//  packages/core/src/sql.ts
+
+import { RDS } from "sst/node/rds";
+```
+
+It has access to the config of our database, thanks to _Resource Binding_. You might recall us **binding** our database to the functions in our API.
+
+```ts
+//  stacks/Api.ts
+
+function: {
+  bind:[rds],
+}
+```
+
+By binding the `rds` cluster to our API in `stacks/Api.ts`, our API can access the database ARN (an ARN is an AWS identifier), database name, and ARN of the secret to access the database in our functions.
+
+3. The Kysely instance also needs a `Database` type. This is comming from `packages/core/src/sql.generated.ts`
+
+```ts
+//  packages/core/src/sql.generated.ts
+
+export interface Database {
+  article: Article;
+  comment: Comment;
+}
+```
+
+The keys of this interface are the table names in our database. And they in turn point to other interfaces that list the column types of the respective tables. For example, here's the new `Comment` table we just created:
+
+```ts
+export interface Comment {
+  articleID: string;
+  commentID: string;
+  text: string;
+}
+```
+
+4. The `sql.generated.ts` types file, as you might've guessed in auto-generated. Our infraestructure code generates this when a new migration is run!
+
+It's defined in `stacks/Database.ts`
+
+```ts
+const rds = new RDS(stack, "rds", {
+  engine: "postgresql11.13",
+  migrations: "packages/core/migrations",
+  types: "packages/core/src/sql.generated.ts",
+  defaultDatabaseName: "main",
+});
+```
+
+Event though this file is auto-generated, you should check it into Git.
+
+Now with our business logic and database queries implemented, we are ready to hook up our API.

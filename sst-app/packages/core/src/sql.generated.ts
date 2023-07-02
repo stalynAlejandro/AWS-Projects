@@ -13,6 +13,13 @@ export interface Article {
   created: Generated<Timestamp>;
 }
 
+export interface Comment {
+  commentID: string;
+  articleID: string;
+  text: string;
+}
+
 export interface Database {
   article: Article;
+  comment: Comment;
 }

@@ -24,3 +24,21 @@ export function list() {
     .orderBy("created", "desc")
     .execute();
 }
+
+// Add new feature 'comments'
+export function addComment(articleID:string, text:string){
+  // code for adding a comment to an article
+  return SQL.DB.insertInto("comment").values({
+    commentID:ulid(),
+    articleID,
+    text,
+  }).returningAll().executeTakeFirstOrThrow();
+}
+
+export function comments(articleID:string){
+  // code for getting a list of comments of an article
+  return SQL.DB.selectFrom("comment")
+  .selectAll()
+  .where("articleID","=",articleID)
+  .execute()
+}
