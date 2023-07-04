@@ -7,7 +7,6 @@ import {
   OperationResult,
   UseMutationState,
   OperationContext,
-  defaultExchanges,
   UseMutationResponse,
 } from "urql";
 
@@ -56,8 +55,9 @@ export function useTypedMutation<
 ): UseMutationResponse<Data, Variables> {
   const client = useClient();
   const isMounted = useRef(true);
-  const [state, setState] =
-    useState<UseMutationState<Data, Variables>>(initialState);
+  const [state, setState] = useState<UseMutationState<Data, Variables>>(
+    initialState
+  );
   const executeMutation = useCallback(
     (
       vars?: Variables,
